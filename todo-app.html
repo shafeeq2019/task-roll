@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TICKET — Task Roll</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --paper:#fffdf7;
+    --ink:#20241f;
+    --ink-soft:#4a4f45;
+    --meta:#9b9483;
+    --line:#e2ddc8;
+    --stamp:#c1440e;
+    --good:#3d6b45;
+    --backdrop:#2b2b26;
+    --backdrop-2:#1e1e1a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(circle at 50% 0%, #3a3a33 0%, var(--backdrop) 45%, var(--backdrop-2) 100%);
+    font-family:'Courier New', Courier, monospace;
+    color:var(--ink);
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    padding:28px 12px 60px;
+  }
+
+  .receipt{
+    width:100%;
+    max-width:420px;
+    background:var(--paper);
+    box-shadow:0 30px 60px rgba(0,0,0,0.45), 0 2px 0 rgba(255,255,255,0.4) inset;
+    position:relative;
+    padding:26px 22px 20px;
+  }
+  .receipt::before{
+    content:"";
+    position:absolute;
+    top:-11px; left:0; right:0; height:12px;
+    background:
+      radial-gradient(circle at 8px 0, transparent 7px, var(--backdrop) 7px) 0 -1px / 16px 12px repeat-x;
+  }
+  .receipt::after{
+    content:"";
+    position:absolute;
+    bottom:-11px; left:0; right:0; height:12px;
+    background:
+      radial-gradient(circle at 8px 12px, transparent 7px, var(--backdrop) 7px) 0 1px / 16px 12px repeat-x;
+  }
+
+  header{
+    text-align:center;
+    border-bottom:2px dashed var(--line);
+    padding-bottom:14px;
+    margin-bottom:14px;
+  }
+  header .brand{
+    font-weight:700;
+    font-size:22px;
+    letter-spacing:6px;
+    margin:0;
+  }
+  header .sub{
+    font-size:11px;
+    color:var(--ink-soft);
+    letter-spacing:2px;
+    margin-top:6px;
+  }
+  header .meta-row{
+    display:flex;
+    justify-content:space-between;
+    font-size:10px;
+    color:var(--meta);
+    margin-top:10px;
+    letter-spacing:1px;
+  }
+
+  /* room / sync bar */
+  .room-bar{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin-bottom:14px;
+    padding:8px;
+    border:1px dashed var(--line);
+    background:#fffef9;
+  }
+  .room-bar .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--meta);
+    flex-shrink:0;
+  }
+  .room-bar .dot.online{ background:var(--good); }
+  .room-bar .dot.offline{ background:var(--stamp); }
+  .room-bar input{
+    flex:1;
+    min-width:0;
+    font-family:inherit;
+    font-size:12px;
+    letter-spacing:2px;
+    text-transform:uppercase;
+    border:none;
+    background:transparent;
+    color:var(--ink);
+    outline:none;
+  }
+  .room-bar button{
+    font-family:inherit;
+    font-size:10px;
+    letter-spacing:1px;
+    background:var(--ink);
+    color:var(--paper);
+    border:none;
+    padding:6px 8px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .room-note{
+    font-size:9px;
+    color:var(--meta);
+    letter-spacing:0.5px;
+    margin:-8px 0 14px;
+    text-align:center;
+  }
+
+  .add-row{
+    display:flex;
+    gap:8px;
+    margin-bottom:14px;
+  }
+  .add-row input[type="text"]{
+    flex:1;
+    font-family:inherit;
+    font-size:14px;
+    padding:10px 8px;
+    border:1px dashed var(--line);
+    background:#fffef9;
+    color:var(--ink);
+    outline:none;
+  }
+  .add-row input[type="text"]:focus{
+    border-color:var(--stamp);
+  }
+  .add-row button{
+    font-family:inherit;
+    font-weight:700;
+    font-size:13px;
+    letter-spacing:1px;
+    background:var(--ink);
+    color:var(--paper);
+    border:none;
+    padding:0 16px;
+    cursor:pointer;
+  }
+  .add-row button:active{ transform:translateY(1px); }
+
+  .filters{
+    display:flex;
+    gap:0;
+    border:1px solid var(--line);
+    margin-bottom:12px;
+    font-size:11px;
+    letter-spacing:1px;
+  }
+  .filters button{
+    flex:1;
+    font-family:inherit;
+    background:transparent;
+    border:none;
+    padding:8px 4px;
+    color:var(--ink-soft);
+    cursor:pointer;
+    border-right:1px solid var(--line);
+  }
+  .filters button:last-child{ border-right:none; }
+  .filters button.active{
+    background:var(--ink);
+    color:var(--paper);
+  }
+
+  ul#list{
+    list-style:none;
+    margin:0;
+    padding:0;
+  }
+  #list li{
+    position:relative;
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    padding:10px 2px;
+    border-bottom:1px dashed var(--line);
+    font-size:14px;
+  }
+  #list li:last-child{ border-bottom:none; }
+
+  .check{
+    flex-shrink:0;
+    width:20px;
+    height:20px;
+    border:2px solid var(--ink);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    margin-top:1px;
+    background:#fffef9;
+  }
+  .check.done{
+    background:var(--ink);
+  }
+  .check.done::after{
+    content:"✓";
+    color:var(--paper);
+    font-size:13px;
+    line-height:1;
+  }
+
+  .item-body{ flex:1; min-width:0; }
+  .item-text{
+    word-break:break-word;
+    line-height:1.4;
+  }
+  .item-text.done{
+    color:var(--meta);
+  }
+  .stamp-wrap{ position:relative; display:inline; }
+  .item-text.done .stamp-wrap::after{
+    content:"";
+    position:absolute;
+    left:-2%; right:-2%; top:50%;
+    height:2px;
+    background:var(--stamp);
+    transform:rotate(-2deg);
+  }
+  .item-time{
+    font-size:10px;
+    color:var(--meta);
+    letter-spacing:0.5px;
+    margin-top:3px;
+  }
+
+  .del{
+    flex-shrink:0;
+    background:transparent;
+    border:none;
+    color:var(--meta);
+    font-size:16px;
+    line-height:1;
+    cursor:pointer;
+    padding:2px 4px;
+  }
+  .del:hover{ color:var(--stamp); }
+
+  .empty{
+    text-align:center;
+    color:var(--meta);
+    font-size:12px;
+    padding:30px 10px;
+    letter-spacing:1px;
+  }
+
+  footer{
+    border-top:2px dashed var(--line);
+    margin-top:14px;
+    padding-top:12px;
+  }
+  .totals{
+    display:flex;
+    justify-content:space-between;
+    font-size:11px;
+    color:var(--ink-soft);
+    letter-spacing:1px;
+    margin-bottom:12px;
+  }
+  .totals strong{ color:var(--ink); }
+
+  .db-row{
+    display:flex;
+    gap:8px;
+    justify-content:center;
+    font-size:10px;
+    letter-spacing:1px;
+    flex-wrap:wrap;
+  }
+  .db-row button{
+    font-family:inherit;
+    background:transparent;
+    border:1px solid var(--ink-soft);
+    color:var(--ink-soft);
+    padding:6px 10px;
+    cursor:pointer;
+  }
+  .db-row button:active{ transform:translateY(1px); }
+  #import-input{ display:none; }
+
+  .barcode{
+    margin-top:16px;
+    height:34px;
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--ink) 0px, var(--ink) 2px,
+      transparent 2px, transparent 4px,
+      var(--ink) 4px, var(--ink) 5px,
+      transparent 5px, transparent 9px
+    );
+    opacity:0.85;
+  }
+  .barcode-label{
+    text-align:center;
+    font-size:9px;
+    letter-spacing:3px;
+    color:var(--meta);
+    margin-top:4px;
+  }
+  .credit{
+    text-align:center;
+    font-size:9px;
+    letter-spacing:1px;
+    color:var(--meta);
+    margin-top:10px;
+    margin-bottom:0;
+  }
+
+  .toast{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'Courier New', monospace;
+    font-size:12px;
+    letter-spacing:1px;
+    padding:10px 16px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.25s ease, transform 0.25s ease;
+    z-index:10;
+    max-width:80vw;
+    text-align:center;
+  }
+  .toast.show{
+    opacity:1;
+    transform:translateX(-50%) translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .toast{ transition:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="receipt">
+  <header>
+    <p class="brand">TASK&nbsp;ROLL</p>
+    <p class="sub">TODAY'S ORDER · NO. <span id="ticket-no">0001</span></p>
+    <div class="meta-row">
+      <span id="today-date">—</span>
+      <span>QTY <span id="qty-open">0</span></span>
+    </div>
+  </header>
+
+  <div class="room-bar">
+    <span class="dot offline" id="sync-dot"></span>
+    <input type="text" id="room-code" placeholder="ROOM CODE" maxlength="12">
+    <button id="join-btn">JOIN</button>
+    <button id="new-room-btn">NEW</button>
+  </div>
+  <p class="room-note" id="sync-status">not connected — enter a room code to sync across devices</p>
+
+  <div class="add-row">
+    <input type="text" id="new-item" placeholder="add an item…" maxlength="140" autocomplete="off">
+    <button id="add-btn">ADD</button>
+  </div>
+
+  <div class="filters">
+    <button data-filter="all" class="active">ALL</button>
+    <button data-filter="active">OPEN</button>
+    <button data-filter="done">DONE</button>
+  </div>
+
+  <ul id="list"></ul>
+  <p class="empty" id="empty-msg" style="display:none;">— roll is empty —</p>
+
+  <footer>
+    <div class="totals">
+      <span>ITEMS <strong id="total-count">0</strong></span>
+      <span>DONE <strong id="done-count">0</strong></span>
+      <span>OPEN <strong id="open-count">0</strong></span>
+    </div>
+    <div class="db-row">
+      <button id="export-btn">EXPORT .JSON</button>
+      <button id="import-btn">IMPORT .JSON</button>
+      <button id="clear-btn">CLEAR DONE</button>
+    </div>
+    <input type="file" id="import-input" accept="application/json">
+    <div class="barcode"></div>
+    <p class="barcode-label">THANK YOU FOR GETTING THINGS DONE</p>
+    <p class="credit">created by Shafeeq Barram</p>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- Supabase config ---------- */
+  var SUPABASE_URL = "https://kalswcsxlgaxfxkuaayg.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthbHN3Y3N4bGdheGZ4a3VhYXlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxOTIyMzEsImV4cCI6MjA5ODc2ODIzMX0.R3WtT02XeBCuTuTZYb2jR83l80pwt9eWfRhP6tWrIBE";
+
+  var sb = null;
+  try{
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }catch(e){
+    console.error("Supabase init failed:", e);
+  }
+
+  var LOCAL_KEY = "task_roll_db_v1";
+  var TICKET_KEY = "task_roll_ticket_v1";
+  var ROOM_KEY = "task_roll_room_v1";
+
+  var state = {
+    items: [],
+    filter: "all",
+    room: null,
+    channel: null,
+    online: false
+  };
+
+  /* ---------- helpers ---------- */
+  function uid(){
+    return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+  }
+
+  function randomRoom(){
+    var letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    var s = "";
+    for(var i=0;i<6;i++){ s += letters[Math.floor(Math.random()*letters.length)]; }
+    return s;
+  }
+
+  function fmtTime(ts){
+    var d = new Date(ts);
+    var h = d.getHours(), m = d.getMinutes();
+    var ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12; if(h === 0) h = 12;
+    var mm = m < 10 ? "0"+m : m;
+    return h + ":" + mm + " " + ampm;
+  }
+
+  function todayStr(){
+    var d = new Date();
+    var days = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+    var months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+    return days[d.getDay()] + " " + d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+  }
+
+  function toast(msg){
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._tid);
+    toast._tid = setTimeout(function(){ t.classList.remove("show"); }, 1800);
+  }
+
+  function setSyncUI(){
+    var dot = document.getElementById("sync-dot");
+    var status = document.getElementById("sync-status");
+    if(state.online && state.room){
+      dot.className = "dot online";
+      status.textContent = "synced live — room " + state.room + " (share this code to sync other devices)";
+    }else if(state.room){
+      dot.className = "dot offline";
+      status.textContent = "room set but not connected — check your connection";
+    }else{
+      dot.className = "dot offline";
+      status.textContent = "not connected — enter a room code to sync across devices";
+    }
+  }
+
+  /* ---------- local (offline) cache, keyed by room ---------- */
+  function localKeyFor(room){
+    return LOCAL_KEY + ":" + (room || "local");
+  }
+  function loadLocal(room){
+    try{
+      var raw = localStorage.getItem(localKeyFor(room));
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    }catch(e){ return []; }
+  }
+  function saveLocal(room, items){
+    try{ localStorage.setItem(localKeyFor(room), JSON.stringify(items)); }
+    catch(e){ console.error("local cache save failed:", e); }
+  }
+
+  /* ---------- rendering ---------- */
+  function visibleItems(){
+    if(state.filter === "active") return state.items.filter(function(i){ return !i.done; });
+    if(state.filter === "done") return state.items.filter(function(i){ return i.done; });
+    return state.items;
+  }
+
+  function render(){
+    var list = document.getElementById("list");
+    var emptyMsg = document.getElementById("empty-msg");
+    var items = visibleItems();
+
+    list.innerHTML = "";
+
+    emptyMsg.style.display = items.length === 0 ? "block" : "none";
+
+    items.forEach(function(item){
+      var li = document.createElement("li");
+
+      var check = document.createElement("div");
+      check.className = "check" + (item.done ? " done" : "");
+      check.addEventListener("click", function(){ toggleDone(item.id); });
+
+      var body = document.createElement("div");
+      body.className = "item-body";
+
+      var text = document.createElement("div");
+      text.className = "item-text" + (item.done ? " done" : "");
+      var wrap = document.createElement("span");
+      wrap.className = "stamp-wrap";
+      wrap.textContent = item.text;
+      text.appendChild(wrap);
+
+      var time = document.createElement("div");
+      time.className = "item-time";
+      time.textContent = (item.done ? "done " : "added ") + fmtTime(item.done ? (item.doneAt || item.createdAt) : item.createdAt);
+
+      body.appendChild(text);
+      body.appendChild(time);
+
+      var del = document.createElement("button");
+      del.className = "del";
+      del.setAttribute("aria-label", "Delete item");
+      del.textContent = "×";
+      del.addEventListener("click", function(){ removeItem(item.id); });
+
+      li.appendChild(check);
+      li.appendChild(body);
+      li.appendChild(del);
+      list.appendChild(li);
+    });
+
+    var total = state.items.length;
+    var done = state.items.filter(function(i){ return i.done; }).length;
+    var open = total - done;
+
+    document.getElementById("total-count").textContent = total;
+    document.getElementById("done-count").textContent = done;
+    document.getElementById("open-count").textContent = open;
+    document.getElementById("qty-open").textContent = open;
+
+    saveLocal(state.room, state.items);
+  }
+
+  function sortItems(){
+    state.items.sort(function(a,b){ return (b.createdAt||0) - (a.createdAt||0); });
+  }
+
+  /* ---------- Supabase-backed mutations (fall back to local-only if offline) ---------- */
+  function addItem(text){
+    text = text.trim();
+    if(!text) return;
+    var item = { id: uid(), text: text, done: false, createdAt: Date.now(), doneAt: null };
+    state.items.unshift(item);
+    render();
+    bumpTicket();
+
+    if(sb && state.room){
+      sb.from("tasks").insert({
+        id: item.id, room_code: state.room, text: item.text,
+        done: item.done, created_at: item.createdAt, done_at: item.doneAt
+      }).then(function(res){
+        if(res.error){ console.error(res.error); toast("sync error — saved locally only"); }
+      });
+    }
+  }
+
+  function toggleDone(id){
+    var item = state.items.find(function(i){ return i.id === id; });
+    if(!item) return;
+    item.done = !item.done;
+    item.doneAt = item.done ? Date.now() : null;
+    render();
+
+    if(sb && state.room){
+      sb.from("tasks").update({ done: item.done, done_at: item.doneAt })
+        .eq("id", item.id).eq("room_code", state.room)
+        .then(function(res){ if(res.error) console.error(res.error); });
+    }
+  }
+
+  function removeItem(id){
+    state.items = state.items.filter(function(i){ return i.id !== id; });
+    render();
+
+    if(sb && state.room){
+      sb.from("tasks").delete().eq("id", id).eq("room_code", state.room)
+        .then(function(res){ if(res.error) console.error(res.error); });
+    }
+  }
+
+  function clearDone(){
+    var doneIds = state.items.filter(function(i){ return i.done; }).map(function(i){ return i.id; });
+    if(doneIds.length === 0) return;
+    state.items = state.items.filter(function(i){ return !i.done; });
+    render();
+    toast("cleared completed items");
+
+    if(sb && state.room){
+      sb.from("tasks").delete().eq("room_code", state.room).in("id", doneIds)
+        .then(function(res){ if(res.error) console.error(res.error); });
+    }
+  }
+
+  function bumpTicket(){
+    var n = parseInt(localStorage.getItem(TICKET_KEY) || "0", 10) + 1;
+    localStorage.setItem(TICKET_KEY, String(n));
+    document.getElementById("ticket-no").textContent = String(n).padStart(4, "0");
+  }
+
+  /* ---------- room / sync lifecycle ---------- */
+  function rowToItem(row){
+    return { id: row.id, text: row.text, done: !!row.done, createdAt: row.created_at, doneAt: row.done_at };
+  }
+
+  function joinRoom(room){
+    room = (room || "").trim().toUpperCase();
+    if(!room){ toast("enter a room code first"); return; }
+
+    if(state.channel){
+      sb.removeChannel(state.channel);
+      state.channel = null;
+    }
+
+    state.room = room;
+    localStorage.setItem(ROOM_KEY, room);
+    document.getElementById("room-code").value = room;
+    state.items = loadLocal(room);
+    sortItems();
+    render();
+    state.online = false;
+    setSyncUI();
+
+    if(!sb){ toast("cloud sync unavailable — using local storage only"); return; }
+
+    sb.from("tasks").select("*").eq("room_code", room).then(function(res){
+      if(res.error){
+        console.error(res.error);
+        toast("could not reach cloud — showing local copy");
+        setSyncUI();
+        return;
+      }
+      state.items = res.data.map(rowToItem);
+      sortItems();
+      render();
+      state.online = true;
+      setSyncUI();
+      toast("synced to room " + room);
+
+      state.channel = sb.channel("room-" + room)
+        .on("postgres_changes",
+          { event: "*", schema: "public", table: "tasks", filter: "room_code=eq." + room },
+          function(){
+            sb.from("tasks").select("*").eq("room_code", room).then(function(res2){
+              if(!res2.error){
+                state.items = res2.data.map(rowToItem);
+                sortItems();
+                render();
+              }
+            });
+          })
+        .subscribe(function(status){
+          state.online = (status === "SUBSCRIBED");
+          setSyncUI();
+        });
+    });
+  }
+
+  /* ---------- export / import (portable JSON database file) ---------- */
+  function exportJSON(){
+    var payload = {
+      app: "task-roll",
+      version: 1,
+      room: state.room,
+      exportedAt: new Date().toISOString(),
+      items: state.items
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "task-roll-" + new Date().toISOString().slice(0,10) + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast("exported .json file");
+  }
+
+  function importJSON(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      try{
+        var parsed = JSON.parse(reader.result);
+        var incoming = Array.isArray(parsed) ? parsed : parsed.items;
+        if(!Array.isArray(incoming)) throw new Error("no items array found");
+        incoming = incoming.filter(function(i){ return i && typeof i.text === "string"; })
+          .map(function(i){
+            return {
+              id: i.id || uid(),
+              text: i.text,
+              done: !!i.done,
+              createdAt: i.createdAt || Date.now(),
+              doneAt: i.doneAt || null
+            };
+          });
+        state.items = incoming;
+        sortItems();
+        render();
+        toast("imported " + incoming.length + " item(s)");
+
+        if(sb && state.room && incoming.length){
+          var rows = incoming.map(function(i){
+            return { id: i.id, room_code: state.room, text: i.text, done: i.done, created_at: i.createdAt, done_at: i.doneAt };
+          });
+          sb.from("tasks").upsert(rows).then(function(res){
+            if(res.error) console.error(res.error);
+          });
+        }
+      }catch(e){
+        console.error("Import failed:", e);
+        toast("import failed — invalid file");
+      }
+    };
+    reader.onerror = function(){ toast("could not read file"); };
+    reader.readAsText(file);
+  }
+
+  /* ---------- wiring ---------- */
+  document.getElementById("add-btn").addEventListener("click", function(){
+    var input = document.getElementById("new-item");
+    addItem(input.value);
+    input.value = "";
+    input.focus();
+  });
+
+  document.getElementById("new-item").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){
+      addItem(this.value);
+      this.value = "";
+    }
+  });
+
+  document.querySelectorAll(".filters button").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      document.querySelectorAll(".filters button").forEach(function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      state.filter = btn.getAttribute("data-filter");
+      render();
+    });
+  });
+
+  document.getElementById("clear-btn").addEventListener("click", clearDone);
+  document.getElementById("export-btn").addEventListener("click", exportJSON);
+  document.getElementById("import-btn").addEventListener("click", function(){
+    document.getElementById("import-input").click();
+  });
+  document.getElementById("import-input").addEventListener("change", function(e){
+    if(e.target.files && e.target.files[0]){
+      importJSON(e.target.files[0]);
+      e.target.value = "";
+    }
+  });
+
+  document.getElementById("join-btn").addEventListener("click", function(){
+    joinRoom(document.getElementById("room-code").value);
+  });
+  document.getElementById("room-code").addEventListener("keydown", function(e){
+    if(e.key === "Enter") joinRoom(this.value);
+  });
+  document.getElementById("new-room-btn").addEventListener("click", function(){
+    var code = randomRoom();
+    document.getElementById("room-code").value = code;
+    joinRoom(code);
+  });
+
+  /* ---------- init ---------- */
+  document.getElementById("today-date").textContent = todayStr();
+  document.getElementById("ticket-no").textContent =
+    (localStorage.getItem(TICKET_KEY) || "0").padStart(4, "0");
+
+  var savedRoom = localStorage.getItem(ROOM_KEY);
+  if(savedRoom){
+    joinRoom(savedRoom);
+  }else{
+    state.items = loadLocal(null);
+    sortItems();
+    render();
+    setSyncUI();
+  }
+
+})();
+</script>
+
+</body>
+</html>
