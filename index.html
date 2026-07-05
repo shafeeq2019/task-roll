@@ -778,8 +778,8 @@
     sb.from("rooms").select("password_hash").eq("room_code", room).maybeSingle().then(function(res){
       if(res.error){
         console.error(res.error);
-        toast("Could not verify password — joining in local mode");
-        finalizeJoin(room);
+        toast("Could not verify this room right now — check your connection and try again");
+        setSyncUI();
         return;
       }
 
