@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flow — Tasks</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#6c5ce7">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Flow">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root{
@@ -118,6 +125,12 @@
     align-items:center;
     gap:8px;
   }
+  .sync-actions{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  .sync-actions .pill-btn{ flex:1; text-align:center; }
   .sync-dot{
     width:9px; height:9px; border-radius:50%;
     background:var(--text-muted);
@@ -133,12 +146,12 @@
     font-size:13px;
     font-weight:600;
     letter-spacing:1px;
-    text-transform:uppercase;
     border:none;
     background:transparent;
     color:var(--text);
     outline:none;
   }
+  .sync-row input#room-code{ text-transform:uppercase; }
   .sync-row input::placeholder{ color:var(--text-muted); font-weight:400; letter-spacing:0.5px; text-transform:none; }
   .pill-btn{
     font-family:inherit;
@@ -385,10 +398,15 @@
     <div class="sync-row">
       <span class="sync-dot offline" id="sync-dot"></span>
       <input type="text" id="room-code" placeholder="Room code" maxlength="12">
-      <button class="pill-btn primary" id="join-btn">Join</button>
-      <button class="pill-btn" id="new-room-btn">New</button>
     </div>
-    <p class="sync-note" id="sync-status">Not connected — enter a room code to sync across devices.</p>
+    <div class="sync-row" style="margin-top:8px;">
+      <input type="password" id="room-password" placeholder="Password (optional)" maxlength="64">
+    </div>
+    <div class="sync-actions">
+      <button class="pill-btn primary" id="join-btn">Join</button>
+      <button class="pill-btn" id="new-room-btn">New room</button>
+    </div>
+    <p class="sync-note" id="sync-status">Not connected — enter a room code (and password, if set) to sync across devices.</p>
   </div>
 
   <div class="card">
@@ -490,6 +508,12 @@
     var mm = m < 10 ? "0"+m : m;
     return h + ":" + mm + " " + ampm;
   }
+  function sha256Hex(str){
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(str)).then(function(buf){
+      return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2, "0"); }).join("");
+    });
+  }
+  function pwHashKey(room){ return "task_roll_pwhash_v1:" + room; }
   function todayStr(){
     var d = new Date();
     var days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -655,10 +679,7 @@
     return { id: row.id, text: row.text, done: !!row.done, createdAt: row.created_at, doneAt: row.done_at };
   }
 
-  function joinRoom(room){
-    room = (room || "").trim().toUpperCase();
-    if(!room){ toast("Enter a room code first"); return; }
-
+  function finalizeJoin(room){
     if(state.channel){
       sb.removeChannel(state.channel);
       state.channel = null;
@@ -667,6 +688,7 @@
     state.room = room;
     localStorage.setItem(ROOM_KEY, room);
     document.getElementById("room-code").value = room;
+    document.getElementById("room-password").value = "";
     state.items = loadLocal(room);
     sortItems();
     render();
@@ -705,6 +727,96 @@
           state.online = (status === "SUBSCRIBED");
           setSyncUI();
         });
+    });
+  }
+
+  function createAndJoinRoom(room, password){
+    room = (room || "").trim().toUpperCase();
+    if(!room){ toast("Enter a room code first"); return; }
+    if(!sb){ finalizeJoin(room); return; }
+
+    sb.from("rooms").select("room_code").eq("room_code", room).maybeSingle().then(function(checkRes){
+      if(checkRes.error){
+        console.error(checkRes.error);
+        toast("Could not check room availability — joining locally");
+        finalizeJoin(room);
+        return;
+      }
+
+      if(checkRes.data){
+        toast("Room \"" + room + "\" is already taken — try a different code");
+        return;
+      }
+
+      var afterHash = function(hash){
+        sb.from("rooms").insert({ room_code: room, password_hash: hash || null, created_at: Date.now() })
+          .then(function(res){
+            if(res.error){
+              if(res.error.code === "23505"){
+                toast("Room \"" + room + "\" is already taken — try a different code");
+                return;
+              }
+              console.error(res.error);
+              toast("Could not save room — joining locally");
+            }
+            if(hash) localStorage.setItem(pwHashKey(room), hash);
+            finalizeJoin(room);
+          });
+      };
+
+      var pw = (password || "").trim();
+      if(pw){ sha256Hex(pw).then(afterHash); }
+      else{ afterHash(null); }
+    });
+  }
+
+  function attemptJoin(room, password){
+    room = (room || "").trim().toUpperCase();
+    if(!room){ toast("Enter a room code first"); return; }
+    if(!sb){ finalizeJoin(room); return; }
+
+    sb.from("rooms").select("password_hash").eq("room_code", room).maybeSingle().then(function(res){
+      if(res.error){
+        console.error(res.error);
+        toast("Could not verify password — joining in local mode");
+        finalizeJoin(room);
+        return;
+      }
+
+      var row = res.data;
+
+      if(!row){
+        // room has no password record yet — treat as open and register it for consistency
+        sb.from("rooms").insert({ room_code: room, password_hash: null, created_at: Date.now() })
+          .then(function(){});
+        finalizeJoin(room);
+        return;
+      }
+
+      if(!row.password_hash){
+        finalizeJoin(room);
+        return;
+      }
+
+      var entered = (password || "").trim();
+      if(entered){
+        sha256Hex(entered).then(function(hash){
+          if(hash === row.password_hash){
+            localStorage.setItem(pwHashKey(room), hash);
+            finalizeJoin(room);
+          }else{
+            toast("Incorrect password");
+          }
+        });
+        return;
+      }
+
+      var stored = localStorage.getItem(pwHashKey(room));
+      if(stored && stored === row.password_hash){
+        finalizeJoin(room);
+      }else{
+        toast("This room needs a password");
+      }
     });
   }
 
@@ -801,15 +913,19 @@
   });
 
   document.getElementById("join-btn").addEventListener("click", function(){
-    joinRoom(document.getElementById("room-code").value);
+    attemptJoin(document.getElementById("room-code").value, document.getElementById("room-password").value);
   });
   document.getElementById("room-code").addEventListener("keydown", function(e){
-    if(e.key === "Enter") joinRoom(this.value);
+    if(e.key === "Enter") attemptJoin(this.value, document.getElementById("room-password").value);
+  });
+  document.getElementById("room-password").addEventListener("keydown", function(e){
+    if(e.key === "Enter") attemptJoin(document.getElementById("room-code").value, this.value);
   });
   document.getElementById("new-room-btn").addEventListener("click", function(){
-    var code = randomRoom();
-    document.getElementById("room-code").value = code;
-    joinRoom(code);
+    var input = document.getElementById("room-code");
+    var code = input.value.trim() ? input.value.trim().toUpperCase() : randomRoom();
+    input.value = code;
+    createAndJoinRoom(code, document.getElementById("room-password").value);
   });
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
 
@@ -819,12 +935,20 @@
 
   var savedRoom = localStorage.getItem(ROOM_KEY);
   if(savedRoom){
-    joinRoom(savedRoom);
+    attemptJoin(savedRoom, "");
   }else{
     state.items = loadLocal(null);
     sortItems();
     render();
     setSyncUI();
+  }
+
+  if("serviceWorker" in navigator){
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register("sw.js").catch(function(err){
+        console.error("Service worker registration failed:", err);
+      });
+    });
   }
 
 })();
