@@ -446,11 +446,16 @@
         <button class="pill-btn" id="new-room-btn">New room</button>
       </div>
       <button class="link-btn" id="cancel-panel-btn" style="display:none;">Cancel</button>
+      <button class="link-btn" id="forget-pw-btn">Forget remembered password for this code</button>
       <p class="sync-note" id="sync-status">Not connected — enter a room code (and password, if set) to sync across devices.</p>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="switching-note" style="display:none;">
+    <p class="empty" style="padding:14px 4px;">Tasks are hidden while switching rooms. Join or cancel above to continue.</p>
+  </div>
+
+  <div class="card" id="tasks-card">
     <div class="add-row">
       <input type="text" id="new-item" placeholder="Add a task…" maxlength="140" autocomplete="off">
       <button id="add-btn">Add</button>
@@ -466,7 +471,7 @@
     <p class="empty" id="empty-msg" style="display:none;">Nothing here yet — add your first task above.</p>
   </div>
 
-  <div class="card">
+  <div class="card" id="stats-card">
     <div class="stats">
       <span>Total <strong id="total-count">0</strong></span>
       <span>Done <strong id="done-count">0</strong></span>
@@ -587,6 +592,9 @@
     document.getElementById("joined-room-code").textContent = state.room;
     document.getElementById("room-joined").style.display = "block";
     document.getElementById("room-panel").style.display = "none";
+    document.getElementById("switching-note").style.display = "none";
+    document.getElementById("tasks-card").style.display = "block";
+    document.getElementById("stats-card").style.display = "block";
   }
 
   function showPanelView(cancellable){
@@ -594,6 +602,14 @@
     document.getElementById("room-joined").style.display = "none";
     document.getElementById("cancel-panel-btn").style.display = cancellable ? "block" : "none";
     document.getElementById("room-password").value = "";
+
+    // While actively switching away from a joined room, hide the task
+    // list so leftover data from the previous room can't be mistaken
+    // for a successful join with the wrong (or no) password.
+    var hideTasks = !!cancellable;
+    document.getElementById("switching-note").style.display = hideTasks ? "block" : "none";
+    document.getElementById("tasks-card").style.display = hideTasks ? "none" : "block";
+    document.getElementById("stats-card").style.display = hideTasks ? "none" : "block";
   }
 
   /* ---------- local cache, keyed by room ---------- */
@@ -1011,6 +1027,12 @@
   });
   document.getElementById("leave-room-btn").addEventListener("click", function(){
     leaveRoom();
+  });
+  document.getElementById("forget-pw-btn").addEventListener("click", function(){
+    var code = document.getElementById("room-code").value.trim().toUpperCase();
+    if(!code){ toast("Type a room code first"); return; }
+    localStorage.removeItem(pwHashKey(code));
+    toast("Forgot remembered password for " + code + " on this device");
   });
 
   /* ---------- init ---------- */
